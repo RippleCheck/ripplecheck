@@ -110,15 +110,33 @@ A standalone Electron app (macOS and Windows) that watches a folder and shows im
 live. It depends on no AI tool, no hooks and no MCP support — it drives the same
 scanner directly.
 
-> **No prebuilt binaries are published yet.** Build from source:
->
-> ```bash
-> git clone https://github.com/RippleCheck/ripplecheck.git
-> cd ripplecheck && npm install
-> npm run app                 # run it
-> npm run package:mac         # -> dist/*.dmg
-> npm run package:win         # -> dist/*.exe  (see NOTES.md)
-> ```
+**Download v0.1.1:**
+
+| Platform | Download |
+|:--|:--|
+| macOS (Apple Silicon) | [RippleCheck-0.1.1-arm64.dmg](https://github.com/RippleCheck/ripplecheck/releases/download/v0.1.1/RippleCheck-0.1.1-arm64.dmg) |
+| Windows (x64) | [RippleCheck Setup 0.1.1.exe](https://github.com/RippleCheck/ripplecheck/releases/download/v0.1.1/RippleCheck.Setup.0.1.1.exe) |
+
+Neither installer is code-signed, so both platforms warn on first launch. On macOS,
+drag to Applications then **right-click → Open** (double-clicking the first time gives
+a dialog with no "open anyway" button). On Windows, SmartScreen → **More info** →
+**Run anyway**.
+
+> **The Windows build has not been tested on real Windows hardware.** It builds cleanly
+> and contains the correct files, but was produced on macOS and never run. Treat it as
+> "compiles and contains the right files," not "known working" — and please
+> [open an issue](https://github.com/RippleCheck/ripplecheck/issues) with what you find.
+> The macOS build has been installed and verified to run real scans.
+
+macOS Intel is not currently built. To build from source instead:
+
+```bash
+git clone https://github.com/RippleCheck/ripplecheck.git
+cd ripplecheck && npm install
+npm run app                 # run it
+npm run package:mac         # -> dist/*.dmg
+npm run package:win         # -> dist/*.exe  (needs Rosetta 2 on Apple Silicon; see NOTES.md)
+```
 
 ### CLI
 
