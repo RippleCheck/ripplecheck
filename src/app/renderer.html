@@ -1,0 +1,3683 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>RippleCheck</title>
+    <style>
+      /* Geist variable fonts — bundled under src/app/fonts/ so the runtime
+         doesn't depend on node_modules being present after packaging. */
+      @font-face {
+        font-family: "Geist";
+        src: url("./fonts/Geist-Variable.woff2") format("woff2-variations");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Geist Mono";
+        src: url("./fonts/GeistMono-Variable.woff2") format("woff2-variations");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      :root {
+        color-scheme: dark;
+
+        /* Surfaces — kept close to #0A0A0A per brand, refined with subtle GitHub-style lifts */
+        --bg-canvas: #0a0a0a;
+        --bg-elevated: #121317;
+        --bg-overlay: #181b21;
+        --bg-hover: #1e2229;
+
+        /* Borders */
+        --border-default: #23272e;
+        --border-subtle: #191c21;
+        --border-strong: #2f353e;
+
+        /* Text */
+        --text-primary: #f5f5f5;
+        --text-secondary: #c9d1d9;
+        --text-muted: #8b949e;
+        --text-subtle: #6e7681;
+
+        /* Accent — kept as #38BDF8 per brand */
+        --accent: #38bdf8;
+        --accent-hover: #7dd3fc;
+        --accent-pressed: #0ea5e9;
+        --accent-tint: rgba(56, 189, 248, 0.1);
+        --accent-tint-strong: rgba(56, 189, 248, 0.2);
+        --accent-fg-on-solid: #0a0a0a;
+
+        /* Risk colors, mapped 1:1 from riskLevel — do not derive from sentence text */
+        --safe-fg: #3fb950;
+        --safe-bg: rgba(63, 185, 80, 0.08);
+        --safe-border: rgba(63, 185, 80, 0.22);
+        --safe-glow: rgba(63, 185, 80, 0.16);
+
+        --moderate-fg: #e3b341;
+        --moderate-bg: rgba(227, 179, 65, 0.08);
+        --moderate-border: rgba(227, 179, 65, 0.22);
+        --moderate-glow: rgba(227, 179, 65, 0.16);
+
+        --high-fg: #f85149;
+        --high-bg: rgba(248, 81, 73, 0.08);
+        --high-border: rgba(248, 81, 73, 0.24);
+        --high-glow: rgba(248, 81, 73, 0.18);
+
+        --neutral-fg: #8b949e;
+        --neutral-bg: rgba(139, 148, 158, 0.08);
+        --neutral-border: rgba(139, 148, 158, 0.22);
+
+        /* Typography */
+        --font-ui: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+          "SF Pro Text", "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+        --font-mono: "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono",
+          Menlo, "Roboto Mono", Consolas, "Liberation Mono", monospace;
+
+        --fs-xs: 11px;
+        --fs-sm: 12px;
+        --fs-base: 13px;
+        --fs-md: 14px;
+        --fs-lg: 15px;
+        --fs-xl: 18px;
+        --fs-2xl: 22px;
+
+        --lh-body: 1.55;
+
+        /* Spacing */
+        --sp-1: 4px;
+        --sp-2: 8px;
+        --sp-3: 12px;
+        --sp-4: 16px;
+        --sp-5: 20px;
+        --sp-6: 24px;
+        --sp-8: 32px;
+        --sp-10: 40px;
+
+        /* Radii */
+        --r-sm: 4px;
+        --r-md: 6px;
+        --r-lg: 10px;
+        --r-pill: 999px;
+
+        /* Shadows */
+        --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.02) inset,
+          0 12px 28px -14px rgba(0, 0, 0, 0.55);
+        --shadow-header: inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+        --shadow-accent-glow: 0 0 0 1px var(--accent-tint-strong),
+          0 8px 24px -8px var(--accent-tint);
+
+        /* Bottom platform status bar height — body reserves this via
+           padding-bottom so the fixed bar never overlaps content. */
+        --platform-bar-height: 28px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg-canvas);
+        color: var(--text-primary);
+        font-family: var(--font-ui);
+        font-size: var(--fs-md);
+        line-height: var(--lh-body);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        display: flex;
+        flex-direction: row;
+        overflow: hidden;
+        /* Reserve space for the fixed .platform-bar so its background never
+           overlaps content — the bar itself is position:fixed for the
+           traditional VS Code look (spanning under the sidebar too). */
+        padding-bottom: var(--platform-bar-height);
+      }
+
+      /* --- Sidebar -------------------------------------------------------- */
+
+      .sidebar {
+        position: relative;
+        z-index: 3;
+        width: 240px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        background: rgba(10, 10, 10, 0.92);
+        border-right: 1px solid var(--border-subtle);
+        backdrop-filter: saturate(140%) blur(10px);
+        -webkit-backdrop-filter: saturate(140%) blur(10px);
+        /* .sidebar-nav's flex:1 spacer won't shrink below its buttons'
+           content height, so on a short window the bottom-pinned
+           sidebar-user/sidebar-stack sections can need more room than
+           body's `overflow: hidden` leaves visible. Scroll instead of
+           silently clipping the tech-stack badges out of view. */
+        overflow-y: auto;
+      }
+
+      .sidebar-brand {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-5) var(--sp-4) var(--sp-4);
+      }
+      .sidebar-brand img {
+        width: 28px;
+        height: auto;
+        display: block;
+      }
+      .sidebar-brand-text {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.15;
+      }
+      .sidebar-brand-name {
+        font-size: var(--fs-md);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+      }
+      .sidebar-brand-tagline {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+
+      .sidebar-nav {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: var(--sp-3);
+        overflow-y: auto;
+      }
+
+      .sidebar-nav-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-muted);
+        font-family: inherit;
+        font-size: var(--fs-md);
+        font-weight: 500;
+        text-align: left;
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      }
+      .sidebar-nav-item svg {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+      }
+      .sidebar-nav-item:hover {
+        color: var(--text-primary);
+        background: var(--bg-hover);
+      }
+      .sidebar-nav-item[aria-current="page"] {
+        color: var(--accent);
+        background: var(--accent-tint);
+        border-color: var(--accent-tint-strong);
+      }
+
+      /* --- Sidebar tech-stack panel ---------------------------------------
+         Shows the watched folder's name plus shallow-detected stack badges.
+         Non-JS/TS stacks (Python, Java, Rust, Go...) render muted/dashed
+         with a tooltip explaining deep scanning isn't available for them —
+         still shown, never hidden, so the tool reads as having understood
+         the whole project. */
+
+      .sidebar-stack {
+        padding: var(--sp-3);
+        border-top: 1px solid var(--border-subtle);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+      }
+      .sidebar-stack[hidden] {
+        display: none;
+      }
+
+      .sidebar-stack-folder {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        color: var(--text-secondary);
+      }
+      .sidebar-stack-folder svg {
+        width: 13px;
+        height: 13px;
+        color: var(--text-muted);
+        flex-shrink: 0;
+      }
+      .sidebar-stack-folder-name {
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .sidebar-stack-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .stack-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px 3px 3px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        font-size: var(--fs-xs);
+        color: var(--text-secondary);
+        white-space: nowrap;
+      }
+      .stack-badge[data-supported="false"] {
+        color: var(--text-subtle);
+        background: transparent;
+        border-style: dashed;
+        border-color: var(--border-subtle);
+        cursor: help;
+      }
+      .stack-badge-text {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      /* Version chip lives inside the label so it stays vertically aligned
+         with the tech name — muted color, monospace so digits align. */
+      .stack-badge-version {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-muted);
+        padding: 0 4px;
+        border-radius: 3px;
+        background: var(--bg-canvas);
+      }
+
+      .sidebar-user {
+        padding: var(--sp-3);
+        border-top: 1px solid var(--border-subtle);
+      }
+      .sidebar-user[hidden] { display: none !important; }
+
+      .sidebar-user-signed-in {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+      }
+      .sidebar-user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: var(--bg-hover);
+        object-fit: cover;
+      }
+      .sidebar-user-name {
+        flex: 1;
+        min-width: 0;
+        font-size: var(--fs-sm);
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .sidebar-user-settings {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      }
+      .sidebar-user-settings svg { width: 15px; height: 15px; }
+      .sidebar-user-settings:hover {
+        color: var(--text-primary);
+        background: var(--bg-hover);
+        border-color: var(--border-default);
+      }
+
+      .sidebar-user-login {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px var(--sp-3);
+        border-radius: var(--r-md);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .sidebar-user-login:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-strong);
+      }
+      .sidebar-user-login svg { width: 14px; height: 14px; }
+
+      /* --- Main column ---------------------------------------------------- */
+
+      .main-column {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      /* Subtle radial vignette so the canvas doesn't feel flat */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(
+          1200px 600px at 50% -100px,
+          rgba(56, 189, 248, 0.06),
+          transparent 70%
+        );
+        z-index: 0;
+      }
+
+      /* --- Header ------------------------------------------------------- */
+
+      .app-header {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-4);
+        padding: var(--sp-3) var(--sp-5);
+        background: rgba(10, 10, 10, 0.85);
+        backdrop-filter: saturate(140%) blur(10px);
+        -webkit-backdrop-filter: saturate(140%) blur(10px);
+        border-bottom: 1px solid var(--border-subtle);
+        box-shadow: var(--shadow-header);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        flex-shrink: 0;
+      }
+
+      .brand-mark {
+        width: 30px;
+        height: auto;
+        flex-shrink: 0;
+        display: block;
+      }
+
+      .brand-text {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.15;
+      }
+
+      .brand-name {
+        font-size: var(--fs-lg);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+      }
+
+      .brand-tagline {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        letter-spacing: 0.02em;
+      }
+
+      .header-spacer {
+        flex: 1;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        min-width: 0;
+      }
+
+      .folder-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        max-width: 380px;
+        padding: 5px var(--sp-3);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-pill);
+        background: var(--bg-elevated);
+        color: var(--text-secondary);
+        font-size: var(--fs-sm);
+        line-height: 1.4;
+      }
+
+      .folder-pill svg {
+        width: 13px;
+        height: 13px;
+        flex-shrink: 0;
+        color: var(--text-muted);
+      }
+
+      .folder-pill-path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+      }
+
+      .folder-pill.is-empty .folder-pill-path {
+        font-family: var(--font-ui);
+        color: var(--text-subtle);
+        font-style: italic;
+      }
+
+      .conn-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: 5px var(--sp-3);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-pill);
+        background: var(--bg-elevated);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        transition: background 250ms ease, border-color 250ms ease, color 250ms ease;
+      }
+
+      .conn-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--text-subtle);
+        box-shadow: 0 0 0 3px rgba(110, 118, 129, 0.12);
+      }
+
+      .conn-pill[data-state="watching"] {
+        color: var(--safe-fg);
+        background: var(--safe-bg);
+        border-color: var(--safe-border);
+      }
+      .conn-pill[data-state="watching"] .conn-dot {
+        background: var(--safe-fg);
+        box-shadow: 0 0 0 3px var(--safe-glow);
+        animation: dot-pulse 2.2s ease-in-out infinite;
+      }
+
+      .conn-pill[data-state="scanning"] {
+        color: var(--accent);
+        background: var(--accent-tint);
+        border-color: var(--accent-tint-strong);
+      }
+      .conn-pill[data-state="scanning"] .conn-dot {
+        background: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-tint-strong);
+        animation: dot-scan 700ms ease-in-out infinite alternate;
+      }
+
+      .conn-pill[data-state="error"] {
+        color: var(--high-fg);
+        background: var(--high-bg);
+        border-color: var(--high-border);
+      }
+      .conn-pill[data-state="error"] .conn-dot {
+        background: var(--high-fg);
+        box-shadow: 0 0 0 3px var(--high-glow);
+      }
+
+      @keyframes dot-pulse {
+        0%, 100% { transform: scale(1); opacity: 0.9; }
+        50% { transform: scale(1.15); opacity: 1; }
+      }
+      @keyframes dot-scan {
+        from { transform: scale(1); }
+        to { transform: scale(1.35); }
+      }
+
+      /* Tool-detection badge — sits next to the folder pill, hidden until
+         a folder has actually been picked (see .tool-badge.is-empty). */
+      .tool-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 10px 4px 4px;
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-pill);
+        background: var(--bg-elevated);
+        font-size: var(--fs-sm);
+        color: var(--text-secondary);
+        white-space: nowrap;
+      }
+
+      .tool-badge[hidden] {
+        display: none;
+      }
+
+      .tool-badge-icon {
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .tool-badge[data-tool="unknown"] {
+        color: var(--text-subtle);
+        border-color: var(--border-subtle);
+        border-style: dashed;
+      }
+
+      /* --- Monogram (colored two-letter badge) -------------------------------
+         Shared visual currency for tech stacks (sidebar), the tool-detection
+         badge (header), and the platform status bar (footer). Fixed
+         letters + color come from tech-badges.js — the same tech always
+         renders the same. Two sizes: sm=16px (inline chips), md=20px
+         (header/status-bar cells). */
+      .monogram {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-family: var(--font-mono);
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        flex-shrink: 0;
+        user-select: none;
+      }
+      .monogram-sm {
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        font-size: 9px;
+      }
+      .monogram-md {
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+        font-size: 10px;
+      }
+      /* Muted / dashed stacks (Python, Java, etc.) and disconnected
+         status-bar platforms both fade the colored monogram so it doesn't
+         out-shout the fully-supported/connected badges next to it. */
+      .stack-badge[data-supported="false"] .monogram,
+      .platform-badge[data-connected="false"] .monogram {
+        opacity: 0.5;
+      }
+
+      /* Buttons */
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px var(--sp-3);
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, transform 80ms ease,
+          box-shadow 120ms ease;
+      }
+
+      .btn:active {
+        transform: translateY(0.5px);
+      }
+
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-fg-on-solid);
+        border-color: var(--accent);
+      }
+      .btn-primary:hover {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+      .btn-primary:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-tint-strong);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--text-secondary);
+        border-color: var(--border-default);
+      }
+      .btn-ghost:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-strong);
+        color: var(--text-primary);
+      }
+
+      /* --- Live status strip --------------------------------------------
+         Persistent heartbeat-monitor line below the header. The waveform
+         itself scrolls continuously via an animated CSS mask (so it reads
+         as "alive" regardless of state); only its color — plain
+         background-color, smoothly transitioned — reflects whether a
+         recent scan produced a high-riskLevel result. */
+
+      .pulse-strip {
+        position: relative;
+        z-index: 2;
+        height: 26px;
+        flex-shrink: 0;
+        background: var(--bg-elevated);
+        border-bottom: 1px solid var(--border-subtle);
+        overflow: hidden;
+      }
+
+      .pulse-strip-line {
+        position: absolute;
+        inset: 0;
+        background-color: var(--safe-fg);
+        opacity: 0.85;
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20160%2026'%3E%3Cpath%20d='M0,13%20L64,13%20L70,3%20L76,23%20L82,13%20L88,13%20L160,13'%20fill='none'%20stroke='white'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20160%2026'%3E%3Cpath%20d='M0,13%20L64,13%20L70,3%20L76,23%20L82,13%20L88,13%20L160,13'%20fill='none'%20stroke='white'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E");
+        -webkit-mask-repeat: repeat-x;
+        mask-repeat: repeat-x;
+        -webkit-mask-size: 160px 100%;
+        mask-size: 160px 100%;
+        -webkit-mask-position: 0 0;
+        mask-position: 0 0;
+        animation: pulse-scroll 2.6s linear infinite;
+        transition: background-color 900ms ease, opacity 900ms ease;
+      }
+
+      .pulse-strip-line.is-alert {
+        background-color: var(--high-fg);
+        opacity: 1;
+      }
+
+      @keyframes pulse-scroll {
+        from { -webkit-mask-position: 0 0; mask-position: 0 0; }
+        to   { -webkit-mask-position: -160px 0; mask-position: -160px 0; }
+      }
+
+      /* --- Main --------------------------------------------------------- */
+
+      main {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        overflow-y: auto;
+        padding: var(--sp-5) var(--sp-5) var(--sp-8);
+      }
+
+      .container {
+        max-width: 880px;
+        margin: 0 auto;
+      }
+
+      /* State views (empty / watching) */
+
+      .state-view {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 72px var(--sp-6) var(--sp-6);
+        color: var(--text-secondary);
+      }
+
+      .state-view[hidden] {
+        display: none;
+      }
+
+      .state-mark {
+        width: 72px;
+        height: 72px;
+        border-radius: 20px;
+        display: grid;
+        place-items: center;
+        margin-bottom: var(--sp-5);
+        color: var(--accent);
+        background: linear-gradient(
+          160deg,
+          rgba(56, 189, 248, 0.14),
+          rgba(56, 189, 248, 0.02)
+        );
+        border: 1px solid var(--accent-tint-strong);
+        box-shadow: 0 12px 32px -18px rgba(56, 189, 248, 0.55);
+      }
+
+      .state-mark svg {
+        width: 36px;
+        height: 36px;
+      }
+
+      .state-mark.is-watching {
+        color: var(--safe-fg);
+        background: linear-gradient(160deg, var(--safe-bg), rgba(63, 185, 80, 0.02));
+        border-color: var(--safe-border);
+        box-shadow: 0 12px 32px -18px rgba(63, 185, 80, 0.55);
+      }
+      .state-mark.is-watching svg {
+        animation: mark-pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes mark-pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.06); }
+      }
+
+      .state-mark.is-error {
+        color: var(--high-fg);
+        background: linear-gradient(160deg, var(--high-bg), rgba(248, 81, 73, 0.02));
+        border-color: var(--high-border);
+        box-shadow: 0 12px 32px -18px rgba(248, 81, 73, 0.55);
+      }
+
+      .state-title {
+        font-size: var(--fs-2xl);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        color: var(--text-primary);
+        margin: 0 0 var(--sp-2);
+      }
+
+      .state-body {
+        font-size: var(--fs-md);
+        color: var(--text-muted);
+        max-width: 440px;
+        margin: 0 auto var(--sp-5);
+      }
+
+      .state-body code {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-default);
+        color: var(--text-secondary);
+      }
+
+      .state-actions {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--sp-3);
+      }
+
+      .upload-zip-status {
+        margin: var(--sp-3) 0 0;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        min-height: 1em;
+      }
+
+      .auth-row {
+        margin-top: var(--sp-5);
+        padding-top: var(--sp-5);
+        border-top: 1px solid var(--border-subtle);
+        display: flex;
+        justify-content: center;
+      }
+
+      .auth-status-text {
+        font-size: var(--fs-sm);
+        color: var(--safe-fg);
+      }
+
+      .auth-status-text[hidden] {
+        display: none;
+      }
+
+      /* --- Entry cards ------------------------------------------------- */
+
+      .entry-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+      }
+
+      .entry-list[hidden] {
+        display: none;
+      }
+
+      .entry-card {
+        position: relative;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+        animation: card-enter 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      @keyframes card-enter {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.995);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      /* First card gets a brief accent glow to flag "just arrived" */
+      .entry-card.is-fresh {
+        animation: card-enter 340ms cubic-bezier(0.16, 1, 0.3, 1) both,
+          fresh-glow 1200ms ease-out 200ms both;
+      }
+      @keyframes fresh-glow {
+        0%   { box-shadow: var(--shadow-card), 0 0 0 1px var(--accent-tint-strong), 0 0 32px -4px var(--accent-tint); }
+        100% { box-shadow: var(--shadow-card), 0 0 0 1px transparent, 0 0 0 transparent; }
+      }
+
+      /* Left accent stripe reflects the worst risk in the card */
+      .entry-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 3px;
+        background: var(--neutral-fg);
+        opacity: 0.55;
+      }
+      .entry-card[data-worst="safe"]::before     { background: var(--safe-fg); }
+      .entry-card[data-worst="moderate"]::before { background: var(--moderate-fg); }
+      .entry-card[data-worst="high"]::before     { background: var(--high-fg); }
+
+      .entry-card-header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        border-bottom: 1px solid var(--border-subtle);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.015),
+          transparent
+        );
+      }
+
+      .entry-file {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        color: var(--text-primary);
+        font-size: var(--fs-base);
+        min-width: 0;
+      }
+
+      .entry-file svg {
+        width: 14px;
+        height: 14px;
+        color: var(--accent);
+        flex-shrink: 0;
+      }
+
+      .entry-file-path {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        color: var(--accent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+
+      .entry-card-header-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+      }
+
+      .risk-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+      }
+
+      .risk-summary-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: var(--fs-xs);
+        letter-spacing: 0.02em;
+        color: var(--text-muted);
+        padding: 2px 7px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--border-default);
+        background: var(--bg-canvas);
+      }
+      .risk-summary-chip[data-risk="safe"]     { color: var(--safe-fg);     border-color: var(--safe-border);     background: var(--safe-bg); }
+      .risk-summary-chip[data-risk="moderate"] { color: var(--moderate-fg); border-color: var(--moderate-border); background: var(--moderate-bg); }
+      .risk-summary-chip[data-risk="high"]     { color: var(--high-fg);     border-color: var(--high-border);     background: var(--high-bg); }
+
+      .risk-summary-chip-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .entry-time {
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-subtle);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .entry-card-body {
+        padding: var(--sp-2) 0;
+      }
+
+      /* --- Session summary card ------------------------------------------
+         Sits above the per-edit cards for the session it recaps. Visually
+         distinct from a plain entry-card: larger padding, an accent border
+         and top stripe, and a soft header wash instead of the neutral one. */
+
+      .session-summary-card {
+        position: relative;
+        background: var(--bg-elevated);
+        border: 1px solid var(--accent-tint-strong);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-accent-glow), var(--shadow-card);
+        overflow: hidden;
+        animation: card-enter 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .session-summary-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 4px;
+        background: var(--accent);
+      }
+
+      .session-summary-header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-4) var(--sp-5);
+        border-bottom: 1px solid var(--border-subtle);
+        background: linear-gradient(180deg, var(--accent-tint), transparent);
+      }
+
+      .session-summary-title {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        font-size: var(--fs-lg);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+      }
+
+      .session-summary-title svg {
+        width: 18px;
+        height: 18px;
+        color: var(--accent);
+        flex-shrink: 0;
+      }
+
+      .session-summary-time {
+        margin-left: auto;
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-subtle);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .session-summary-body {
+        padding: var(--sp-5);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+      }
+
+      .session-summary-stats {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--sp-5);
+      }
+
+      .session-summary-stat {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+
+      .session-summary-stat-value {
+        font-size: var(--fs-2xl);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .session-summary-stat-label {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+
+      .session-summary-stats .risk-summary-chip {
+        font-size: var(--fs-sm);
+        padding: 3px 9px;
+      }
+
+      .session-summary-line {
+        margin: 0;
+        font-size: var(--fs-md);
+        color: var(--text-secondary);
+      }
+
+      /* --- Repository overview (one-time, on watch start) ------------------
+         A pinned card above the per-edit cards showing a risk gauge (circular
+         ring colored by the same riskLevel palette) plus, when an AI key is
+         set, one generated whole-repo summary. Neutral surface so it reads as
+         a distinct "here's the repo as a whole" panel, not another edit card. */
+
+      .repo-overview {
+        position: relative;
+        margin-bottom: var(--sp-5);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+        animation: card-enter 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .repo-overview[hidden] {
+        display: none;
+      }
+
+      .repo-overview-head {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        border-bottom: 1px solid var(--border-subtle);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+      }
+      .repo-overview-icon {
+        width: 18px;
+        height: 18px;
+        color: var(--accent);
+        flex-shrink: 0;
+      }
+      .repo-overview-heading {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.2;
+        min-width: 0;
+      }
+      .repo-overview-title {
+        font-size: var(--fs-lg);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+      }
+      .repo-overview-sub {
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .repo-overview-body {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-6);
+        padding: var(--sp-5);
+        flex-wrap: wrap;
+      }
+
+      /* Gauge — SVG ring built in the renderer, with a centered percentage
+         overlaid via an absolutely-positioned label. */
+      .repo-gauge {
+        position: relative;
+        width: 132px;
+        height: 132px;
+        flex-shrink: 0;
+      }
+      .repo-gauge-svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .repo-gauge-track {
+        stroke: var(--border-default);
+      }
+      .repo-gauge-center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+      .repo-gauge-pct {
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+      }
+      .repo-gauge-pct-sign {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-muted);
+        margin-left: 1px;
+      }
+      .repo-gauge-caption {
+        margin-top: 4px;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-subtle);
+      }
+
+      .repo-overview-detail {
+        flex: 1;
+        min-width: 220px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+      }
+
+      .repo-overview-metrics {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: var(--sp-2) var(--sp-5);
+      }
+      .repo-overview-metric {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      .repo-overview-metric-value {
+        font-size: var(--fs-xl);
+        font-weight: 700;
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
+      }
+      .repo-overview-metric-label {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+
+      .repo-overview-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+      }
+
+      /* Generated whole-repo summary — violet AI-layer language, matching the
+         per-card banner, so it's clearly the user's own configured LLM. */
+      .repo-overview-ai {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: var(--sp-3);
+        border-radius: var(--r-md);
+        border: 1px solid rgba(124, 58, 237, 0.28);
+        background: linear-gradient(180deg, rgba(124, 58, 237, 0.12), rgba(124, 58, 237, 0.03));
+      }
+      .repo-overview-ai[hidden] {
+        display: none;
+      }
+      .repo-overview-ai-head {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+      }
+      .repo-overview-ai-label {
+        font-size: var(--fs-xs);
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: #c4b5fd;
+      }
+      .repo-overview-ai-text {
+        margin: 0;
+        font-size: var(--fs-base);
+        line-height: 1.55;
+        color: var(--text-primary);
+      }
+      .repo-overview-ai.is-pending .repo-overview-ai-text {
+        color: var(--text-muted);
+      }
+      .repo-overview-ai.is-error {
+        border-color: var(--neutral-border);
+        background: linear-gradient(180deg, rgba(139, 148, 158, 0.09), rgba(139, 148, 158, 0.02));
+      }
+      .repo-overview-ai.is-error .repo-overview-ai-label,
+      .repo-overview-ai.is-error .repo-overview-ai-text {
+        color: var(--text-muted);
+      }
+      .repo-overview-ai.is-error .monogram {
+        opacity: 0.7;
+        filter: grayscale(0.55);
+      }
+
+      /* --- Impact rows -------------------------------------------------- */
+
+      .impact-row {
+        display: grid;
+        grid-template-columns: 32px 1fr;
+        align-items: start;
+        gap: 0;
+        padding: 10px var(--sp-4) 10px var(--sp-2);
+        border-left: 2px solid transparent;
+        transition: background 120ms ease;
+      }
+
+      .impact-row + .impact-row {
+        border-top: 1px solid var(--border-subtle);
+      }
+
+      .impact-row:hover {
+        background: var(--bg-hover);
+      }
+
+      .impact-row-icon {
+        display: grid;
+        place-items: center;
+        padding-top: 1px;
+      }
+      .impact-row-icon svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .impact-row[data-risk="safe"]     .impact-row-icon svg { color: var(--safe-fg); }
+      .impact-row[data-risk="moderate"] .impact-row-icon svg { color: var(--moderate-fg); }
+      .impact-row[data-risk="high"]     .impact-row-icon svg { color: var(--high-fg); }
+      .impact-row[data-risk="note"]     .impact-row-icon svg { color: var(--text-subtle); }
+
+      /* When the high-risk warning icon is also a "Copy fix prompt"
+         shortcut, dress the container as an actual button — visible
+         affordance (hover ring), keyboard focus outline, and a brief
+         green-tint pulse after clicking to confirm the copy landed. */
+      button.impact-row-icon-copy {
+        appearance: none;
+        border: 1px solid transparent;
+        background: transparent;
+        border-radius: var(--r-sm);
+        padding: 3px;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      button.impact-row-icon-copy:hover,
+      button.impact-row-icon-copy:focus-visible {
+        background: var(--high-bg);
+        border-color: var(--high-border);
+        outline: none;
+      }
+      button.impact-row-icon-copy.is-copied {
+        background: var(--safe-bg);
+        border-color: var(--safe-border);
+      }
+      button.impact-row-icon-copy.is-copied svg { color: var(--safe-fg); }
+
+      .impact-row-text {
+        font-size: var(--fs-md);
+        line-height: 1.55;
+        color: var(--text-secondary);
+        min-width: 0;
+      }
+
+      .impact-row[data-risk="high"] .impact-row-text {
+        color: var(--text-primary);
+      }
+
+      .impact-row[data-risk="note"] .impact-row-text {
+        color: var(--text-muted);
+        font-size: var(--fs-base);
+        font-style: italic;
+      }
+
+      .impact-name {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+        background: var(--bg-canvas);
+        border: 1px solid var(--border-default);
+        color: var(--text-primary);
+        white-space: nowrap;
+      }
+      .impact-row[data-risk="safe"]     .impact-name { color: var(--safe-fg);     border-color: var(--safe-border);     background: var(--safe-bg); }
+      .impact-row[data-risk="moderate"] .impact-name { color: var(--moderate-fg); border-color: var(--moderate-border); background: var(--moderate-bg); }
+      .impact-row[data-risk="high"]     .impact-name { color: var(--high-fg);     border-color: var(--high-border);     background: var(--high-bg); }
+
+      .impact-file {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+        background: var(--bg-canvas);
+        border: 1px solid var(--border-default);
+        color: var(--text-secondary);
+        white-space: nowrap;
+      }
+
+      .impact-used-in {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-left: 4px;
+        vertical-align: middle;
+      }
+
+      /* --- Detail-level-specific row elements --------------------------- */
+
+      /* Deep Dive: raw file:line + riskLevel block */
+      .impact-expert-block {
+        margin: 6px 0 0;
+        padding: var(--sp-2) var(--sp-3);
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border-default);
+        background: var(--bg-canvas);
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      /* --- LLM contextual-analysis banner (BYOK enrichment) ---------------
+         Sits between the card header and the deterministic impact rows. Given
+         a distinct violet gradient + soft glow + inset ring so it reads
+         unmistakably as the AI layer (its content came from the user's own
+         configured LLM), clearly set apart from the neutral deterministic
+         scanner output around it. Three states: success, loading, error. */
+      .ai-insight {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+        padding: var(--sp-4);
+        border-top: 1px solid rgba(124, 58, 237, 0.28);
+        border-bottom: 1px solid rgba(124, 58, 237, 0.28);
+        background: linear-gradient(180deg, rgba(124, 58, 237, 0.14), rgba(124, 58, 237, 0.035));
+        box-shadow: inset 0 1px 0 rgba(168, 85, 247, 0.22),
+          0 10px 26px -20px rgba(124, 58, 237, 0.75);
+      }
+
+      /* Labeled trust header: the AI monogram + an "AI ANALYSIS" wordmark +
+         a small provenance note, so it's always explicit this is LLM output. */
+      .ai-insight-head {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+      }
+      .ai-insight-head .monogram {
+        flex-shrink: 0;
+        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.16);
+      }
+      .ai-insight-label {
+        display: inline-flex;
+        align-items: baseline;
+        gap: var(--sp-2);
+        min-width: 0;
+        flex-wrap: wrap;
+      }
+      .ai-insight-label-title {
+        font-size: var(--fs-xs);
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: #c4b5fd;
+      }
+      .ai-insight-label-note {
+        font-size: 10px;
+        letter-spacing: 0.02em;
+        color: var(--text-subtle);
+      }
+      .ai-insight-text {
+        margin: 0;
+        font-size: var(--fs-base);
+        line-height: 1.55;
+        color: var(--text-primary);
+      }
+      .ai-insight-files {
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+      }
+      .ai-insight-file {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        padding: 2px 8px;
+        border: 1px solid rgba(124, 58, 237, 0.22);
+        border-radius: var(--r-pill);
+        background: rgba(124, 58, 237, 0.06);
+      }
+      .ai-insight-file .impact-file {
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: var(--text-secondary);
+      }
+      .ai-insight-fix-btn {
+        align-self: flex-start;
+        margin-left: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 11px;
+        border-radius: var(--r-pill);
+        border: 1px solid rgba(124, 58, 237, 0.45);
+        background: rgba(124, 58, 237, 0.14);
+        color: var(--text-secondary);
+        font-family: inherit;
+        font-size: var(--fs-xs);
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+      .ai-insight-fix-btn:hover {
+        background: rgba(124, 58, 237, 0.24);
+        border-color: rgba(124, 58, 237, 0.65);
+        color: var(--text-primary);
+      }
+
+      /* Loading state: shimmering skeleton that mirrors the eventual
+         explanation lines + file chips, so the banner slot is reserved and
+         nothing pops in jarringly when the LLM responds. */
+      .ai-insight-skeleton-lines {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+      .skeleton-line,
+      .skeleton-chip {
+        display: block;
+        background: linear-gradient(
+          90deg,
+          rgba(124, 58, 237, 0.1) 25%,
+          rgba(168, 85, 247, 0.3) 50%,
+          rgba(124, 58, 237, 0.1) 75%
+        );
+        background-size: 200% 100%;
+        animation: ai-shimmer 1.3s ease-in-out infinite;
+      }
+      .skeleton-line { height: 11px; border-radius: 5px; }
+      .ai-insight-skeleton-chips { display: flex; gap: 6px; }
+      .skeleton-chip { height: 21px; border-radius: var(--r-pill); }
+      @keyframes ai-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      /* Error state: calm + neutral (never alarming red), since enrichment is
+         optional and the deterministic analysis below is intact. */
+      .ai-insight-error {
+        border-top-color: var(--neutral-border);
+        border-bottom-color: var(--neutral-border);
+        background: linear-gradient(180deg, rgba(139, 148, 158, 0.09), rgba(139, 148, 158, 0.02));
+        box-shadow: inset 0 1px 0 rgba(139, 148, 158, 0.12);
+      }
+      .ai-insight-error .ai-insight-label-title { color: var(--text-muted); }
+      .ai-insight-error .monogram {
+        opacity: 0.7;
+        filter: grayscale(0.55);
+        box-shadow: none;
+      }
+      .ai-insight-error-text { color: var(--text-muted); }
+
+      /* Failure banner */
+      .scan-failed {
+        margin: var(--sp-3) var(--sp-4);
+        padding: var(--sp-3);
+        border-radius: var(--r-md);
+        border: 1px solid var(--high-border);
+        background: var(--high-bg);
+        color: var(--high-fg);
+        font-size: var(--fs-base);
+        font-family: var(--font-mono);
+      }
+
+      /* --- Cloud mode ----------------------------------------------------- */
+
+      .cloud-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-md);
+        background: var(--bg-elevated);
+      }
+
+      .cloud-item-folder {
+        font-family: var(--font-mono);
+        font-size: var(--fs-base);
+        color: var(--text-primary);
+      }
+
+      .cloud-item-meta {
+        font-size: var(--fs-sm);
+        color: var(--text-subtle);
+        white-space: nowrap;
+      }
+
+      /* --- Cloud repo browser ---------------------------------------------- */
+
+      .cloud-repo-section {
+        margin-bottom: var(--sp-5);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+      }
+      .cloud-repo-section[hidden] {
+        display: none;
+      }
+
+      .cloud-repo-header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+      }
+
+      .cloud-repo-status {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .cloud-repo-status[data-tone="error"] {
+        color: var(--high-fg);
+      }
+
+      .cloud-repo-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+      }
+      .cloud-repo-list[hidden] {
+        display: none;
+      }
+
+      .cloud-repo-item {
+        width: 100%;
+        text-align: left;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .cloud-repo-item:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-strong);
+      }
+      .cloud-repo-item:disabled {
+        cursor: default;
+        opacity: 0.5;
+      }
+
+      .cloud-repo-visibility {
+        font-size: var(--fs-xs);
+        color: var(--text-subtle);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-pill);
+        padding: 1px 7px;
+        margin-right: var(--sp-2);
+      }
+
+      /* --- CLI mode --------------------------------------------------------- */
+
+      .cli-command-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        max-width: 560px;
+        margin: 0 auto var(--sp-4);
+        padding: var(--sp-3) var(--sp-4);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-md);
+        background: var(--bg-elevated);
+      }
+
+      .cli-command-row code {
+        flex: 1;
+        min-width: 0;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        color: var(--text-secondary);
+        overflow-x: auto;
+        white-space: nowrap;
+        text-align: left;
+      }
+
+      .cli-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: 5px var(--sp-3);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-pill);
+        background: var(--bg-elevated);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        transition: background 250ms ease, border-color 250ms ease, color 250ms ease;
+      }
+
+      .cli-status-pill[data-state="connected"] {
+        color: var(--safe-fg);
+        background: var(--safe-bg);
+        border-color: var(--safe-border);
+      }
+      .cli-status-pill[data-state="connected"] .conn-dot {
+        background: var(--safe-fg);
+        box-shadow: 0 0 0 3px var(--safe-glow);
+      }
+      .cli-status-pill[data-state="disconnected"] .conn-dot {
+        background: var(--text-subtle);
+      }
+
+      /* --- CLI clarifier note --------------------------------------------- */
+
+      .cli-clarifier {
+        max-width: 560px;
+        margin: 0 auto var(--sp-4);
+        padding: var(--sp-3) var(--sp-4);
+        border-radius: var(--r-md);
+        border: 1px solid var(--accent-tint-strong);
+        background: var(--accent-tint);
+        color: var(--text-secondary);
+        font-size: var(--fs-sm);
+        line-height: 1.55;
+        text-align: left;
+      }
+      .cli-clarifier strong { color: var(--accent); font-weight: 600; }
+
+      /* --- Settings slide-over ------------------------------------------- */
+
+      .settings-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        background: rgba(0, 0, 0, 0.55);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 200ms ease;
+      }
+      .settings-scrim.is-open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .settings-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 41;
+        width: 380px;
+        max-width: 92vw;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-elevated);
+        border-left: 1px solid var(--border-default);
+        box-shadow: -20px 0 40px -12px rgba(0, 0, 0, 0.6);
+        transform: translateX(100%);
+        transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .settings-panel.is-open { transform: translateX(0); }
+
+      .settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        padding: var(--sp-4) var(--sp-5);
+        border-bottom: 1px solid var(--border-subtle);
+      }
+      .settings-header h2 {
+        margin: 0;
+        font-size: var(--fs-lg);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .settings-close {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+      }
+      .settings-close:hover {
+        color: var(--text-primary);
+        background: var(--bg-hover);
+        border-color: var(--border-default);
+      }
+      .settings-close svg { width: 14px; height: 14px; }
+
+      .settings-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: var(--sp-5);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-5);
+      }
+
+      .settings-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+      }
+      .settings-section-title {
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-subtle);
+      }
+
+      .settings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-md);
+        background: var(--bg-canvas);
+      }
+      .settings-row-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .settings-row-label {
+        font-size: var(--fs-base);
+        color: var(--text-primary);
+      }
+      .settings-row-hint {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .settings-row-value {
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+        color: var(--text-secondary);
+      }
+
+      .detail-level-group {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+      }
+      .detail-level-option {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--sp-3);
+        padding: var(--sp-3);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-md);
+        background: var(--bg-canvas);
+        cursor: pointer;
+        transition: border-color 120ms ease, background 120ms ease;
+      }
+      .detail-level-option:has(input:checked) {
+        border-color: var(--accent-tint-strong);
+        background: var(--accent-tint);
+      }
+      .detail-level-option input[type="radio"] {
+        margin-top: 2px;
+        accent-color: var(--accent);
+        flex-shrink: 0;
+      }
+      .detail-level-option-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .detail-level-option-title {
+        font-size: var(--fs-base);
+        color: var(--text-primary);
+        font-weight: 500;
+      }
+      .detail-level-option-hint {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+
+      /* Settle-window field — the "wait for edits to stop" knob. */
+      .settle-window-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .settle-window-input {
+        width: 64px;
+        padding: 4px 8px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+      }
+      .settle-window-input:focus {
+        outline: none;
+        border-color: var(--border-strong);
+      }
+      .settle-window-unit {
+        color: var(--text-secondary);
+        font-size: var(--fs-xs);
+      }
+
+      /* --- Persistent detail-level tab bar (top of results panel) --------
+         VS Code view-switcher style: three flat buttons in a rounded
+         container, the selected one filled with the accent tint. Hidden
+         until watching a folder — no reason to switch card verbosity
+         when no cards exist yet. The Settings panel radios stay in sync
+         with these tabs, both writing to the same setDetailLevel IPC. */
+      .detail-level-tabs {
+        display: inline-flex;
+        gap: 2px;
+        padding: 3px;
+        margin: 0 0 var(--sp-4);
+        border-radius: var(--r-md);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        align-self: flex-start;
+      }
+      .detail-level-tabs[hidden] {
+        display: none;
+      }
+      .detail-level-tab {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--fs-sm);
+        padding: 5px 12px;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .detail-level-tab:hover {
+        color: var(--text-primary);
+        background: var(--bg-hover);
+      }
+      .detail-level-tab[aria-selected="true"] {
+        color: var(--accent);
+        background: var(--accent-tint);
+      }
+
+      /* --- Platform bar (fixed bottom, VS Code status-bar style) ---------
+         Honest detection only: Claude Code lights up when the check-mcp-
+         status IPC returns true; Cursor / Codex stay muted+dashed with a
+         "not yet detected" tooltip since we have no real signal for them.
+         Never render a "connected" state we can't verify. */
+      .platform-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: var(--platform-bar-height);
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 var(--sp-3);
+        background: var(--bg-elevated);
+        border-top: 1px solid var(--border-subtle);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .platform-bar-hint {
+        color: var(--text-subtle);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        font-size: 10px;
+      }
+      .platform-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 8px 2px 2px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--border-default);
+        background: transparent;
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .platform-badge[data-connected="true"] {
+        color: var(--text-primary);
+        border-color: var(--border-strong);
+        background: var(--bg-canvas);
+      }
+      /* Muted+dashed for platforms we have no honest detection for yet. */
+      .platform-badge[data-connected="false"] {
+        border-style: dashed;
+        color: var(--text-subtle);
+        cursor: help;
+      }
+      .platform-badge-icon {
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .settings-action {
+        padding: 6px var(--sp-3);
+        border-radius: var(--r-md);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+      .settings-action:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-strong);
+      }
+      .settings-action.is-destructive {
+        color: var(--high-fg);
+        border-color: var(--high-border);
+        background: var(--high-bg);
+      }
+      .settings-action.is-destructive:hover {
+        background: rgba(248, 81, 73, 0.14);
+        border-color: var(--high-fg);
+      }
+
+      .settings-toast {
+        margin-top: -8px;
+        font-size: var(--fs-sm);
+        color: var(--safe-fg);
+        opacity: 0;
+        transition: opacity 180ms ease;
+      }
+      .settings-toast.is-visible { opacity: 1; }
+
+      .settings-key-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+      }
+      .settings-input {
+        flex: 1;
+        min-width: 0;
+        padding: 6px var(--sp-3);
+        border-radius: var(--r-md);
+        border: 1px solid var(--border-default);
+        background: var(--bg-canvas);
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+      }
+      .settings-input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .settings-input::placeholder { color: var(--text-subtle); }
+
+      /* --- Onboarding overlay -------------------------------------------
+         First-launch sequence (login → platform → project source). Covers
+         the whole window at a higher z-index than everything else; the main
+         workspace behind it only becomes reachable once step 3 finishes.
+         Re-triggerable from Settings. */
+      .onboarding {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--sp-6);
+        background: radial-gradient(1000px 560px at 50% -80px, rgba(56, 189, 248, 0.09), transparent 70%),
+          rgba(6, 7, 9, 0.96);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        overflow-y: auto;
+      }
+      .onboarding[hidden] { display: none !important; }
+
+      .onboarding-card {
+        width: 100%;
+        max-width: 560px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-card), 0 30px 80px -30px rgba(0, 0, 0, 0.8);
+        overflow: hidden;
+      }
+
+      .onboarding-brand {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-5) var(--sp-6) 0;
+      }
+      .onboarding-brand img { width: 30px; height: auto; display: block; }
+      .onboarding-brand-name {
+        font-size: var(--fs-lg);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      /* Stepper — three dots with connectors; the active/done ones fill in. */
+      .onboarding-steps {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-4) var(--sp-6) 0;
+      }
+      .onboarding-step-dot {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        color: var(--text-subtle);
+        font-size: var(--fs-xs);
+        white-space: nowrap;
+      }
+      .onboarding-step-dot-num {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 1px solid var(--border-strong);
+        background: var(--bg-canvas);
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .onboarding-step-dot[data-state="active"] { color: var(--accent); }
+      .onboarding-step-dot[data-state="active"] .onboarding-step-dot-num {
+        border-color: var(--accent);
+        background: var(--accent-tint);
+        color: var(--accent);
+      }
+      .onboarding-step-dot[data-state="done"] { color: var(--safe-fg); }
+      .onboarding-step-dot[data-state="done"] .onboarding-step-dot-num {
+        border-color: var(--safe-border);
+        background: var(--safe-bg);
+        color: var(--safe-fg);
+      }
+      .onboarding-step-connector {
+        flex: 1;
+        height: 1px;
+        background: var(--border-default);
+        min-width: 12px;
+      }
+
+      .onboarding-body {
+        padding: var(--sp-5) var(--sp-6) var(--sp-6);
+        /* Clip the horizontal slide so a panel entering from the side never
+           spills a scrollbar; the card itself already has overflow:hidden. */
+        overflow: hidden;
+      }
+      .onboarding-panel[hidden] { display: none !important; }
+
+      /* Per-step visual anchor — a large rounded-square icon above the heading
+         so each step reads as a distinct stop on a designed journey rather than
+         a stack of identical forms. Reuses the established .state-mark language
+         (accent gradient tint + soft glow). The AI step (step 4) switches to
+         the violet used by the AI-insight banner, pre-echoing that surface. */
+      .onboarding-mark {
+        width: 54px;
+        height: 54px;
+        border-radius: 15px;
+        display: grid;
+        place-items: center;
+        margin-bottom: var(--sp-4);
+        color: var(--accent);
+        background: linear-gradient(160deg, rgba(56, 189, 248, 0.16), rgba(56, 189, 248, 0.02));
+        border: 1px solid var(--accent-tint-strong);
+        box-shadow: 0 12px 30px -18px rgba(56, 189, 248, 0.6);
+      }
+      .onboarding-mark svg { width: 26px; height: 26px; }
+      .onboarding-mark.is-ai {
+        color: #c4b5fd;
+        background: linear-gradient(160deg, rgba(124, 58, 237, 0.22), rgba(124, 58, 237, 0.03));
+        border-color: rgba(124, 58, 237, 0.42);
+        box-shadow: 0 12px 30px -18px rgba(124, 58, 237, 0.7);
+      }
+
+      /* Direction-aware slide between steps (~270ms): forward slides the new
+         panel in from the right (content moves left), Back mirrors it. The
+         class is applied by showOnboardingStep() after a reflow so it retriggers
+         each transition. Honors reduced-motion below. */
+      .onboarding-panel.onboarding-slide-fwd {
+        animation: onboarding-slide-fwd 270ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .onboarding-panel.onboarding-slide-back {
+        animation: onboarding-slide-back 270ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      @keyframes onboarding-slide-fwd {
+        from { opacity: 0; transform: translateX(26px); }
+        to   { opacity: 1; transform: translateX(0); }
+      }
+      @keyframes onboarding-slide-back {
+        from { opacity: 0; transform: translateX(-26px); }
+        to   { opacity: 1; transform: translateX(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .onboarding-panel.onboarding-slide-fwd,
+        .onboarding-panel.onboarding-slide-back {
+          animation-duration: 1ms;
+        }
+      }
+
+      .onboarding-eyebrow {
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: var(--sp-2);
+      }
+      .onboarding-heading {
+        margin: 0 0 var(--sp-2);
+        font-size: var(--fs-xl);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        color: var(--text-primary);
+      }
+      .onboarding-sub {
+        margin: 0 0 var(--sp-5);
+        font-size: var(--fs-md);
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+
+      /* Big GitHub login button reused visual language from .sidebar-user-login */
+      .onboarding-login-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--sp-2);
+        padding: 10px var(--sp-5);
+        border-radius: var(--r-md);
+        border: 1px solid var(--border-strong);
+        background: var(--bg-canvas);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: var(--fs-md);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .onboarding-login-btn:hover { background: var(--bg-hover); border-color: var(--accent-tint-strong); }
+      .onboarding-login-btn svg { width: 16px; height: 16px; }
+
+      .onboarding-signed-in {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        border: 1px solid var(--safe-border);
+        border-radius: var(--r-md);
+        background: var(--safe-bg);
+      }
+      .onboarding-signed-in[hidden] { display: none !important; }
+      .onboarding-signed-in svg { width: 16px; height: 16px; color: var(--safe-fg); flex-shrink: 0; }
+      .onboarding-signed-in-name { font-size: var(--fs-md); color: var(--text-primary); }
+      .onboarding-signed-in-name b { color: var(--safe-fg); font-weight: 600; }
+
+      /* Platform + source choice grids share the selectable-card pattern. */
+      .onboarding-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--sp-3);
+      }
+      .onboarding-grid.is-stacked { grid-template-columns: 1fr; }
+      .choice-card {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: var(--sp-3) var(--sp-4);
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-md);
+        background: var(--bg-canvas);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: var(--fs-md);
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+      }
+      .choice-card:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+      .choice-card[aria-pressed="true"] {
+        border-color: var(--accent);
+        background: var(--accent-tint);
+        box-shadow: 0 0 0 1px var(--accent-tint-strong);
+      }
+      .choice-card-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+      .choice-card-title { font-size: var(--fs-md); font-weight: 500; color: var(--text-primary); }
+      .choice-card-hint { font-size: var(--fs-xs); color: var(--text-muted); }
+      .choice-card svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--accent); }
+
+      .onboarding-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        margin-top: var(--sp-5);
+      }
+      .onboarding-footer-note { font-size: var(--fs-sm); color: var(--text-subtle); }
+      .onboarding-back {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--fs-sm);
+        cursor: pointer;
+        padding: 6px 4px;
+      }
+      .onboarding-back:hover { color: var(--text-primary); }
+      .onboarding-back[hidden] { display: none !important; }
+      .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+      .onboarding-source-status {
+        margin-top: var(--sp-3);
+        min-height: 1em;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .onboarding-source-status[data-tone="error"] { color: var(--high-fg); }
+      .onboarding-source-status[data-tone="success"] { color: var(--safe-fg); }
+
+      /* Textual "Step N of 5" progress line above the stepper dots. */
+      .onboarding-progress {
+        padding: var(--sp-4) var(--sp-6) 0;
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-subtle);
+      }
+      .onboarding-steps { padding-top: var(--sp-3); }
+      /* Five labeled dots can crowd a narrow card — drop the words below 460px
+         and let the numbered circles + the progress line carry it. */
+      @media (max-width: 460px) {
+        .onboarding-step-dot-label { display: none; }
+      }
+
+      /* Small "optional" pill next to the AI-provider heading. */
+      .onboarding-optional {
+        display: inline-block;
+        margin-left: var(--sp-2);
+        padding: 1px 8px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--border-default);
+        background: var(--bg-canvas);
+        font-size: var(--fs-xs);
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--text-subtle);
+        vertical-align: middle;
+      }
+
+      /* Text-only choice cards (coding-agent step): centered label, no icon. */
+      .choice-card-text {
+        justify-content: center;
+        text-align: center;
+        padding: var(--sp-4) var(--sp-3);
+      }
+      .onboarding-agent-grid .choice-card-text .choice-card-title {
+        font-size: var(--fs-md);
+      }
+
+      /* Footer with a skip link + primary action grouped on the right. */
+      .onboarding-footer-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-3);
+      }
+      .onboarding-skip {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--fs-sm);
+        cursor: pointer;
+        padding: 6px 4px;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .onboarding-skip:hover { color: var(--text-primary); }
+
+      /* --- AI-provider form (shared shape: onboarding step 4 + Settings) --- */
+      .ai-provider-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+      }
+      .ai-provider-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+      }
+      .ai-provider-chip {
+        padding: 5px 12px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--border-default);
+        background: var(--bg-canvas);
+        color: var(--text-secondary);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        cursor: pointer;
+        transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+      }
+      .ai-provider-chip:hover { border-color: var(--border-strong); color: var(--text-primary); }
+      .ai-provider-chip[aria-pressed="true"] {
+        border-color: var(--accent);
+        background: var(--accent-tint);
+        color: var(--accent);
+      }
+      .ai-provider-custom {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+      }
+      .ai-provider-custom[hidden] { display: none; }
+      .ai-provider-test-status {
+        min-height: 1em;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .ai-provider-test-status[data-tone="success"] { color: var(--safe-fg); }
+      .ai-provider-test-status[data-tone="error"] { color: var(--high-fg); }
+      .ai-provider-test-status[data-tone="pending"] { color: var(--accent); font-style: italic; }
+
+      /* Inline repo browser inside onboarding step 2. */
+      .onboarding-repo-browser {
+        margin-top: var(--sp-3);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+      }
+      .onboarding-repo-browser[hidden] { display: none; }
+      .onboarding-repo-status {
+        margin: 0;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .onboarding-repo-status[data-tone="error"] { color: var(--high-fg); }
+      .onboarding-repo-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+        max-height: 240px;
+        overflow-y: auto;
+      }
+      .onboarding-repo-list[hidden] { display: none; }
+
+      /* --- First-run "Generate fix prompt" callout (dashboard, shown once) --- */
+      .fix-prompt-hint {
+        position: relative;
+        margin: 0 0 var(--sp-4);
+        padding: var(--sp-4) var(--sp-5);
+        border: 1px solid var(--accent-tint-strong);
+        border-radius: var(--r-lg);
+        background: linear-gradient(180deg, var(--accent-tint), transparent);
+        box-shadow: var(--shadow-accent-glow);
+        display: flex;
+        align-items: flex-start;
+        gap: var(--sp-3);
+      }
+      .fix-prompt-hint[hidden] { display: none !important; }
+      .fix-prompt-hint svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; margin-top: 1px; }
+      .fix-prompt-hint-body { flex: 1; min-width: 0; }
+      .fix-prompt-hint-title {
+        font-size: var(--fs-md);
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 2px;
+      }
+      .fix-prompt-hint-text { font-size: var(--fs-sm); color: var(--text-secondary); }
+      .fix-prompt-hint-dismiss {
+        flex-shrink: 0;
+        padding: 4px 10px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        color: var(--text-secondary);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+      .fix-prompt-hint-dismiss:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-strong);
+        color: var(--text-primary);
+      }
+
+      /* --- Persistent project summary (top of Project view) ---------------
+         Shows the LLM one-sentence explanation for the latest scan, kept
+         pinned above the per-edit cards. Violet-tinted to read as the AI
+         layer; distinct from the accent-blue session-summary card that lives
+         inside the feed. */
+      .project-summary {
+        position: relative;
+        margin: 0 0 var(--sp-4);
+        padding: var(--sp-4) var(--sp-5);
+        border: 1px solid rgba(124, 58, 237, 0.35);
+        border-radius: var(--r-lg);
+        background: linear-gradient(180deg, rgba(124, 58, 237, 0.12), rgba(124, 58, 237, 0.04));
+        box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.12), var(--shadow-card);
+      }
+      .project-summary[hidden] { display: none !important; }
+      .project-summary::before {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0; left: 0;
+        width: 4px;
+        background: #7c3aed;
+        border-radius: var(--r-lg) 0 0 var(--r-lg);
+      }
+      .project-summary-head {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-2);
+      }
+      .project-summary-eyebrow {
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #b794f6;
+      }
+      .project-summary-file {
+        margin-left: auto;
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        max-width: 45%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .project-summary-text {
+        margin: 0;
+        font-size: var(--fs-lg);
+        line-height: 1.5;
+        color: var(--text-primary);
+        letter-spacing: -0.005em;
+      }
+      .project-summary-files {
+        margin: var(--sp-3) 0 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .project-summary-files li {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 5px;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        padding: 2px 8px;
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-pill);
+        background: var(--bg-canvas);
+      }
+      .project-summary-files li b {
+        font-family: var(--font-mono);
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
+      .project-summary-pending {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        font-style: italic;
+      }
+      /* Calm hero when the latest scan's enrichment failed — neutralized from
+         the usual violet so it doesn't read as a live AI summary. */
+      .project-summary-errored {
+        border-color: var(--neutral-border);
+        background: linear-gradient(180deg, rgba(139, 148, 158, 0.08), rgba(139, 148, 158, 0.02));
+        box-shadow: none;
+      }
+      .project-summary-errored::before { background: var(--neutral-fg); }
+      .project-summary-errored .project-summary-eyebrow { color: var(--text-subtle); }
+      .project-summary-errored .project-summary-text {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      /* --- Per-finding action bar + reviewed state -----------------------
+         Every finding row ends in an action bar: "Generate fix prompt"
+         (existing) and "Mark as reviewed" (local UI state only). A reviewed
+         row dims and gets a check; the state is kept in memory and survives
+         detail-level re-renders within the session. */
+      .impact-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-top: var(--sp-2);
+      }
+      .impact-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 9px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        color: var(--text-secondary);
+        font-family: inherit;
+        font-size: var(--fs-xs);
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+      }
+      .impact-action-btn:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-strong);
+        color: var(--text-primary);
+      }
+      .impact-action-btn svg { width: 12px; height: 12px; }
+      .impact-review-btn.is-reviewed {
+        color: var(--safe-fg);
+        border-color: var(--safe-border);
+        background: var(--safe-bg);
+      }
+      .impact-row.is-reviewed { opacity: 0.55; }
+      .impact-row.is-reviewed .impact-name { text-decoration: line-through; }
+
+      /* --- Retest verdict -------------------------------------------------
+         Written into the action bar (which wraps), so it takes its own full
+         line under the buttons. Colour follows the verdict, reusing the same
+         risk tokens the rows do: fixed = safe, still-flagged = moderate. */
+      .impact-retest-status {
+        flex-basis: 100%;
+        margin-top: 6px;
+        padding: 6px 9px;
+        border-radius: var(--r-md, 6px);
+        border: 1px solid var(--border-default);
+        background: var(--bg-elevated);
+        color: var(--text-secondary);
+        font-size: var(--fs-xs);
+        line-height: 1.5;
+      }
+      .impact-retest-status.is-pending { opacity: 0.7; }
+      .impact-retest-status.is-fixed {
+        color: var(--safe-fg);
+        border-color: var(--safe-border);
+        background: var(--safe-bg);
+      }
+      .impact-retest-status.is-unchanged {
+        color: var(--moderate-fg);
+        border-color: var(--moderate-border);
+        background: var(--moderate-bg);
+      }
+      .impact-retest-status.is-changed {
+        color: var(--text-primary);
+        border-color: var(--border-strong);
+      }
+      .impact-retest-status.is-error {
+        color: var(--high-fg);
+        border-color: var(--high-border);
+        background: var(--high-bg);
+      }
+      .impact-retest-detail { margin-top: 4px; opacity: 0.85; }
+      .impact-retest-usages {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 6px;
+      }
+
+      /* Simple-mode compact finding line — no paths/lines, leans on the
+         summary above. */
+      .impact-simple-line { color: var(--text-secondary); }
+
+      /* Standard-mode usage list — relative file:line chips on their own line
+         under the plain-English sentence (no absolute paths, no risk block). */
+      .impact-standard-usages {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 6px;
+      }
+
+      /* Utility */
+      [hidden] { display: none !important; }
+
+      /* Scrollbar */
+      main::-webkit-scrollbar {
+        width: 10px;
+      }
+      main::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      main::-webkit-scrollbar-thumb {
+        background: #1f2229;
+        border-radius: 999px;
+        border: 2px solid var(--bg-canvas);
+      }
+      main::-webkit-scrollbar-thumb:hover {
+        background: #2a2e37;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Reusable SVG symbols keep the markup terse and one source of truth per icon. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-ripple" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+          <path
+            d="M8 5a3 3 0 0 1 3 3"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+          <path
+            d="M8 2.5A5.5 5.5 0 0 1 13.5 8"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+            opacity="0.7"
+          />
+        </symbol>
+        <symbol id="i-folder" viewBox="0 0 16 16">
+          <path
+            d="M2 4.75A1.25 1.25 0 0 1 3.25 3.5h2.9c.35 0 .68.14.92.4l1.06 1.1h4.62A1.25 1.25 0 0 1 14 6.25v6A1.25 1.25 0 0 1 12.75 13.5h-9.5A1.25 1.25 0 0 1 2 12.25V4.75z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-file" viewBox="0 0 16 16">
+          <path
+            d="M3.75 2h5.19a1 1 0 0 1 .7.29L12.7 5.14a1 1 0 0 1 .3.71v7.65A1.25 1.25 0 0 1 11.75 14.75h-8A1.25 1.25 0 0 1 2.5 13.5v-10.25A1.25 1.25 0 0 1 3.75 2z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M9 2.25v3a.75.75 0 0 0 .75.75h3"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+          <path
+            d="M5.25 8.35 7.15 10.2l3.6-4.1"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-warning" viewBox="0 0 16 16">
+          <path
+            d="M7.13 2.85 1.9 12.15A1 1 0 0 0 2.77 13.65h10.46a1 1 0 0 0 .87-1.5L8.87 2.85a1 1 0 0 0-1.74 0z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M8 6.5v3.2"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+          <circle cx="8" cy="11.35" r="0.6" fill="currentColor" />
+        </symbol>
+        <symbol id="i-alert" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+          <path
+            d="M8 4.75v4"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
+          <circle cx="8" cy="11.05" r="0.65" fill="currentColor" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path d="M8 7v4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+          <circle cx="8" cy="5" r="0.6" fill="currentColor" />
+        </symbol>
+        <!-- Tool-detection badge icons. i-claude is a generic "AI spark" glyph,
+             not a reproduction of any tool's actual logo/wordmark. -->
+        <symbol id="i-cursor-tool" viewBox="0 0 16 16">
+          <path
+            d="M3.3 2.1 13 7.7l-4.1.9 2.4 3.8-1.6 1-2.4-3.8-2.6 2.9-.4-10.4Z"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="0.6"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-claude" viewBox="0 0 16 16">
+          <path
+            d="M8 1 C8.6 5 11 7.4 15 8 C11 8.6 8.6 11 8 15 C7.4 11 5 8.6 1 8 C5 7.4 7.4 5 8 1 Z"
+            fill="currentColor"
+          />
+        </symbol>
+        <symbol id="i-codex" viewBox="0 0 16 16">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path
+            d="M4 6.2 6.6 8 4 9.8"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path d="M8 9.8h3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+        </symbol>
+        <symbol id="i-tool-unknown" viewBox="0 0 16 16">
+          <circle
+            cx="8"
+            cy="8"
+            r="6.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-dasharray="2.2 2.2"
+          />
+          <circle cx="8" cy="8" r="1.1" fill="currentColor" />
+        </symbol>
+        <!-- Sidebar / settings icons -->
+        <symbol id="i-gear" viewBox="0 0 16 16">
+          <path
+            d="M9.4 1.6 9.7 3a5.6 5.6 0 0 1 1.2.7l1.4-.4 1.4 2.4-1 1a5.6 5.6 0 0 1 0 1.4l1 1-1.4 2.4-1.4-.4a5.6 5.6 0 0 1-1.2.7l-.3 1.4h-2.8l-.3-1.4a5.6 5.6 0 0 1-1.2-.7l-1.4.4-1.4-2.4 1-1a5.6 5.6 0 0 1 0-1.4l-1-1L2.7 3.3l1.4.4A5.6 5.6 0 0 1 5.3 3l.3-1.4Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+          <circle cx="8" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.2" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 16 16">
+          <path
+            d="M4 4l8 8M12 4l-8 8"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </symbol>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            d="M8 1.2A6.8 6.8 0 0 0 5.85 14.5c.34.06.46-.15.46-.32v-1.15c-1.9.41-2.3-.92-2.3-.92-.31-.79-.76-1-.76-1-.62-.42.05-.41.05-.41.68.05 1.04.7 1.04.7.61 1.05 1.6.75 1.99.57.06-.44.24-.75.43-.92-1.52-.17-3.11-.76-3.11-3.4 0-.75.27-1.36.7-1.84-.07-.17-.3-.86.07-1.79 0 0 .58-.19 1.9.7A6.6 6.6 0 0 1 8 4.3a6.6 6.6 0 0 1 1.73.24c1.32-.89 1.9-.7 1.9-.7.37.93.14 1.62.07 1.79.44.48.7 1.1.7 1.84 0 2.64-1.6 3.23-3.12 3.4.25.21.47.63.47 1.27v1.88c0 .18.12.4.47.32A6.8 6.8 0 0 0 8 1.2z"
+            fill="currentColor"
+          />
+        </symbol>
+
+        <!-- Mode-switcher tab icons -->
+        <symbol id="i-cloud" viewBox="0 0 16 16">
+          <path
+            d="M4.8 12.5h6.4a2.3 2.3 0 0 0 .4-4.57 3.3 3.3 0 0 0-6.31-1.2A2.6 2.6 0 0 0 4.8 12.5Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        </symbol>
+        <symbol id="i-terminal" viewBox="0 0 16 16">
+          <path
+            d="M2.5 4.2 6.8 8l-4.3 3.8"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path d="M8 11.8h5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- First-launch onboarding overlay (login → platform → project source).
+         Covers the workspace until step 3 completes; re-openable from Settings. -->
+    <div class="onboarding" id="onboarding" hidden role="dialog" aria-modal="true" aria-label="Set up RippleCheck">
+      <div class="onboarding-card">
+        <div class="onboarding-brand">
+          <img src="../../assets/logo-mark.png" alt="RippleCheck" />
+          <div class="onboarding-brand-name">RippleCheck</div>
+        </div>
+
+        <div class="onboarding-progress" id="onboarding-progress" aria-live="polite">Step 1 of 5</div>
+        <div class="onboarding-steps" id="onboarding-steps">
+          <div class="onboarding-step-dot" data-step="1">
+            <span class="onboarding-step-dot-num">1</span><span class="onboarding-step-dot-label">Sign in</span>
+          </div>
+          <span class="onboarding-step-connector"></span>
+          <div class="onboarding-step-dot" data-step="2">
+            <span class="onboarding-step-dot-num">2</span><span class="onboarding-step-dot-label">Project</span>
+          </div>
+          <span class="onboarding-step-connector"></span>
+          <div class="onboarding-step-dot" data-step="3">
+            <span class="onboarding-step-dot-num">3</span><span class="onboarding-step-dot-label">Agent</span>
+          </div>
+          <span class="onboarding-step-connector"></span>
+          <div class="onboarding-step-dot" data-step="4">
+            <span class="onboarding-step-dot-num">4</span><span class="onboarding-step-dot-label">AI</span>
+          </div>
+          <span class="onboarding-step-connector"></span>
+          <div class="onboarding-step-dot" data-step="5">
+            <span class="onboarding-step-dot-num">5</span><span class="onboarding-step-dot-label">Detail</span>
+          </div>
+        </div>
+
+        <div class="onboarding-body">
+          <!-- Step 1: Login (mandatory; also grants repo-browse scope) -->
+          <section class="onboarding-panel" id="onboarding-panel-1">
+            <div class="onboarding-mark"><svg><use href="#i-github" /></svg></div>
+            <h2 class="onboarding-heading">Sign in with GitHub</h2>
+            <p class="onboarding-sub">
+              One sign-in unlocks everything: the AI contextual analysis for each edit
+              and full access to browse and watch your own GitHub repositories — no
+              separate &ldquo;connect repo access&rdquo; step, ever. It opens in your browser.
+            </p>
+            <button class="onboarding-login-btn" id="onboarding-login-btn" type="button">
+              <svg><use href="#i-github" /></svg>
+              <span>Log in with GitHub</span>
+            </button>
+            <div class="onboarding-signed-in" id="onboarding-signed-in" hidden>
+              <svg><use href="#i-check" /></svg>
+              <span class="onboarding-signed-in-name">Signed in as <b id="onboarding-signed-in-name"></b></span>
+            </div>
+            <div class="onboarding-footer">
+              <span class="onboarding-footer-note" id="onboarding-login-note">Waiting for GitHub sign-in&hellip;</span>
+              <button class="btn btn-primary" id="onboarding-next-1" type="button" disabled>Continue</button>
+            </div>
+          </section>
+
+          <!-- Step 2: Connect a project -->
+          <section class="onboarding-panel" id="onboarding-panel-2" hidden>
+            <div class="onboarding-mark"><svg><use href="#i-folder" /></svg></div>
+            <h2 class="onboarding-heading">Connect a project</h2>
+            <p class="onboarding-sub">
+              Pick where your code lives. We remember this so relaunching takes you
+              straight back in.
+            </p>
+            <div class="onboarding-grid is-stacked" id="onboarding-source-grid">
+              <button class="choice-card" id="onboarding-source-folder" type="button">
+                <svg><use href="#i-folder" /></svg>
+                <span class="choice-card-body">
+                  <span class="choice-card-title">Select folder</span>
+                  <span class="choice-card-hint">Watch a JavaScript/TypeScript folder on this machine</span>
+                </span>
+              </button>
+              <button class="choice-card" id="onboarding-source-zip" type="button">
+                <svg><use href="#i-file" /></svg>
+                <span class="choice-card-body">
+                  <span class="choice-card-title">Upload a zip</span>
+                  <span class="choice-card-hint">Extract and watch a zipped project</span>
+                </span>
+              </button>
+              <button class="choice-card" id="onboarding-source-repos" type="button">
+                <svg><use href="#i-cloud" /></svg>
+                <span class="choice-card-body">
+                  <span class="choice-card-title">Browse GitHub repos</span>
+                  <span class="choice-card-hint">Download one of your repositories and watch it</span>
+                </span>
+              </button>
+            </div>
+
+            <!-- Inline repo browser, revealed when "Browse GitHub repos" is chosen.
+                 Reuses the same fetch/download flow as the Cloud tab; login in
+                 step 1 already granted the scope, so no re-auth is needed. -->
+            <div class="onboarding-repo-browser" id="onboarding-repo-browser" hidden>
+              <p class="onboarding-repo-status" id="onboarding-repo-status"></p>
+              <div class="onboarding-repo-list" id="onboarding-repo-list" hidden></div>
+            </div>
+
+            <p class="onboarding-source-status" id="onboarding-source-status"></p>
+            <div class="onboarding-footer">
+              <button class="onboarding-back" id="onboarding-back-2" type="button">&larr; Back</button>
+              <span class="onboarding-footer-note">Continue opens once a project is loaded.</span>
+            </div>
+          </section>
+
+          <!-- Step 3: Coding agent (text-only, no logos) -->
+          <section class="onboarding-panel" id="onboarding-panel-3" hidden>
+            <div class="onboarding-mark"><svg><use href="#i-terminal" /></svg></div>
+            <h2 class="onboarding-heading">Which coding agent do you use?</h2>
+            <p class="onboarding-sub">
+              This tailors the fix-prompt wording to your assistant. You can change it
+              later in Settings.
+            </p>
+            <div class="onboarding-grid onboarding-agent-grid" id="onboarding-agent-grid">
+              <button class="choice-card choice-card-text" data-platform="claude-code" aria-pressed="false" type="button">
+                <span class="choice-card-title">Claude Code</span>
+              </button>
+              <button class="choice-card choice-card-text" data-platform="cursor" aria-pressed="false" type="button">
+                <span class="choice-card-title">Cursor</span>
+              </button>
+              <button class="choice-card choice-card-text" data-platform="codex" aria-pressed="false" type="button">
+                <span class="choice-card-title">Codex</span>
+              </button>
+              <button class="choice-card choice-card-text" data-platform="windsurf" aria-pressed="false" type="button">
+                <span class="choice-card-title">Windsurf</span>
+              </button>
+              <button class="choice-card choice-card-text" data-platform="other" aria-pressed="false" type="button">
+                <span class="choice-card-title">Other</span>
+              </button>
+            </div>
+            <div class="onboarding-footer">
+              <button class="onboarding-back" id="onboarding-back-3" type="button">&larr; Back</button>
+              <button class="btn btn-primary" id="onboarding-next-3" type="button" disabled>Continue</button>
+            </div>
+          </section>
+
+          <!-- Step 4: AI provider (optional, skippable) -->
+          <section class="onboarding-panel" id="onboarding-panel-4" hidden>
+            <div class="onboarding-mark is-ai"><svg><use href="#i-claude" /></svg></div>
+            <h2 class="onboarding-heading">Add an AI provider <span class="onboarding-optional">optional</span></h2>
+            <p class="onboarding-sub">
+              Optional. A key enriches each scan with an AI explanation, file-purpose
+              labels, and a paste-ready fix prompt. Stored encrypted on this machine and
+              sent only to your provider — never to RippleCheck. Skip and scans still
+              work fully with the built-in template.
+            </p>
+            <div class="ai-provider-form" id="onboarding-ai-form">
+              <div class="ai-provider-chips" id="onboarding-ai-providers" role="radiogroup" aria-label="AI provider">
+                <button class="ai-provider-chip" data-provider="anthropic" aria-pressed="false" type="button">Anthropic</button>
+                <button class="ai-provider-chip" data-provider="openai" aria-pressed="false" type="button">OpenAI</button>
+                <button class="ai-provider-chip" data-provider="xai" aria-pressed="false" type="button">xAI (Grok)</button>
+                <button class="ai-provider-chip" data-provider="google" aria-pressed="false" type="button">Google</button>
+                <button class="ai-provider-chip" data-provider="other" aria-pressed="false" type="button">Other (OpenAI-compatible)</button>
+              </div>
+              <div class="ai-provider-custom" id="onboarding-ai-custom" hidden>
+                <input class="settings-input" id="onboarding-ai-base-url" type="text" autocomplete="off" spellcheck="false" placeholder="Base URL, e.g. https://api.example.com/v1" aria-label="Base URL" />
+                <input class="settings-input" id="onboarding-ai-model" type="text" autocomplete="off" spellcheck="false" placeholder="Model, e.g. gpt-4o-mini" aria-label="Model" />
+              </div>
+              <div class="settings-key-row">
+                <input class="settings-input" id="onboarding-ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="API key" aria-label="API key" />
+                <button class="settings-action" id="onboarding-ai-test" type="button" disabled>Test connection</button>
+              </div>
+              <div class="ai-provider-test-status" id="onboarding-ai-test-status" aria-live="polite"></div>
+            </div>
+            <p class="onboarding-source-status" id="onboarding-ai-status"></p>
+            <div class="onboarding-footer">
+              <button class="onboarding-back" id="onboarding-back-4" type="button">&larr; Back</button>
+              <div class="onboarding-footer-actions">
+                <button class="onboarding-skip" id="onboarding-skip-4" type="button">Skip &mdash; add later</button>
+                <button class="btn btn-primary" id="onboarding-next-4" type="button" disabled>Save &amp; continue</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Step 5: Detail level -->
+          <section class="onboarding-panel" id="onboarding-panel-5" hidden>
+            <div class="onboarding-mark"><svg><use href="#i-ripple" /></svg></div>
+            <h2 class="onboarding-heading">How much detail do you want?</h2>
+            <p class="onboarding-sub">
+              Controls how much each impact card shows. You can change this anytime in
+              Settings or from the tabs above the results.
+            </p>
+            <div class="detail-level-group" id="onboarding-detail-group" role="radiogroup" aria-label="Detail level">
+              <label class="detail-level-option">
+                <input type="radio" name="onboarding-detail-level" value="simple" />
+                <span class="detail-level-option-text">
+                  <span class="detail-level-option-title">Simple</span>
+                  <span class="detail-level-option-hint">Just the AI's plain-language explanation and what each file is for</span>
+                </span>
+              </label>
+              <label class="detail-level-option">
+                <input type="radio" name="onboarding-detail-level" value="standard" />
+                <span class="detail-level-option-text">
+                  <span class="detail-level-option-title">Standard</span>
+                  <span class="detail-level-option-hint">The plain-English impact sentence plus where each symbol is used</span>
+                </span>
+              </label>
+              <label class="detail-level-option">
+                <input type="radio" name="onboarding-detail-level" value="deep" />
+                <span class="detail-level-option-text">
+                  <span class="detail-level-option-title">Deep Dive</span>
+                  <span class="detail-level-option-hint">Full technical trace — paths, line numbers, risk level — plus the AI's reasoning</span>
+                </span>
+              </label>
+            </div>
+            <div class="onboarding-footer">
+              <button class="onboarding-back" id="onboarding-back-5" type="button">&larr; Back</button>
+              <button class="btn btn-primary" id="onboarding-finish" type="button">Finish setup</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <aside class="sidebar" aria-label="App navigation">
+      <div class="sidebar-brand">
+        <img src="../../assets/logo-mark.png" alt="RippleCheck" />
+        <div class="sidebar-brand-text">
+          <div class="sidebar-brand-name">RippleCheck</div>
+          <div class="sidebar-brand-tagline">Live impact analysis</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" role="tablist" aria-label="View mode">
+        <button
+          class="sidebar-nav-item"
+          data-mode="project"
+          role="tab"
+          aria-current="page"
+          type="button"
+        >
+          <svg><use href="#i-folder" /></svg>
+          <span>Project</span>
+        </button>
+        <button
+          class="sidebar-nav-item"
+          data-mode="cloud"
+          role="tab"
+          aria-current="false"
+          type="button"
+        >
+          <svg><use href="#i-cloud" /></svg>
+          <span>Cloud</span>
+        </button>
+        <button
+          class="sidebar-nav-item"
+          data-mode="cli"
+          role="tab"
+          aria-current="false"
+          type="button"
+        >
+          <svg><use href="#i-terminal" /></svg>
+          <span>CLI</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-stack" id="sidebar-stack" hidden>
+        <div class="sidebar-stack-folder">
+          <svg><use href="#i-folder" /></svg>
+          <span class="sidebar-stack-folder-name" id="sidebar-stack-folder-name"></span>
+        </div>
+        <div class="sidebar-stack-badges" id="sidebar-stack-badges"></div>
+      </div>
+
+      <div class="sidebar-user" id="sidebar-user">
+        <div class="sidebar-user-signed-in" id="sidebar-user-signed-in" hidden>
+          <img class="sidebar-user-avatar" id="sidebar-user-avatar" alt="" />
+          <span class="sidebar-user-name" id="sidebar-user-name"></span>
+          <button
+            id="settings-open-button"
+            class="sidebar-user-settings"
+            type="button"
+            title="Settings"
+            aria-label="Open settings"
+          >
+            <svg><use href="#i-gear" /></svg>
+          </button>
+        </div>
+        <button
+          id="sidebar-login-button"
+          class="sidebar-user-login"
+          type="button"
+        >
+          <svg><use href="#i-github" /></svg>
+          <span>Log in with GitHub</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="main-column">
+      <header class="app-header">
+        <div class="header-spacer"></div>
+
+        <div class="header-right">
+          <div class="folder-pill is-empty" id="folder-pill">
+            <svg><use href="#i-folder" /></svg>
+            <span class="folder-pill-path" id="folder-path">No folder selected</span>
+          </div>
+          <button
+            id="end-session-button"
+            class="btn btn-ghost"
+            type="button"
+            title="End the current session and show its summary"
+            hidden
+          >
+            End session
+          </button>
+          <div
+            class="tool-badge"
+            id="tool-badge"
+            data-tool="unknown"
+            hidden
+            title="Only affects this Project tab — CLI mode works with any tool, in any folder."
+          >
+            <span id="tool-badge-icon" class="tool-badge-icon"></span>
+            <span id="tool-badge-label">No tool detected</span>
+          </div>
+          <div class="conn-pill" id="conn-pill" data-state="idle" title="Idle">
+            <span class="conn-dot"></span>
+            <span class="conn-label" id="conn-label">Idle</span>
+          </div>
+          <button id="select-folder-button" class="btn btn-primary" type="button">
+            Select folder
+          </button>
+        </div>
+      </header>
+
+    <div class="pulse-strip" aria-hidden="true">
+      <div class="pulse-strip-line" id="pulse-line"></div>
+    </div>
+
+    <main>
+      <div class="container">
+        <div id="mode-project" class="mode-panel">
+          <div
+            class="detail-level-tabs"
+            id="detail-level-tabs"
+            role="tablist"
+            aria-label="Impact card detail level"
+            hidden
+          >
+            <button
+              class="detail-level-tab"
+              type="button"
+              role="tab"
+              data-level="simple"
+              aria-selected="true"
+              title="Just the AI's plain-language explanation and what each file is for"
+            >
+              Simple
+            </button>
+            <button
+              class="detail-level-tab"
+              type="button"
+              role="tab"
+              data-level="standard"
+              aria-selected="false"
+              title="The plain-English impact sentence plus where each symbol is used"
+            >
+              Standard
+            </button>
+            <button
+              class="detail-level-tab"
+              type="button"
+              role="tab"
+              data-level="deep"
+              aria-selected="false"
+              title="Full technical trace — file paths, line numbers, risk level — plus the AI's reasoning"
+            >
+              Deep Dive
+            </button>
+          </div>
+
+          <!-- First-run nudge toward the single most important action; shown
+               once (persisted via settings.fixPromptHintDismissed), then hidden
+               for good. Injected here so it sits just above the impact cards. -->
+          <div class="fix-prompt-hint" id="fix-prompt-hint" hidden role="note">
+            <svg><use href="#i-ripple" /></svg>
+            <div class="fix-prompt-hint-body">
+              <div class="fix-prompt-hint-title">Tip: Generate fix prompt</div>
+              <div class="fix-prompt-hint-text">
+                On any card with downstream usages, hit <b>Generate fix prompt</b> to copy a
+                ready-to-paste prompt for your coding agent to safely update every affected
+                call site. It's the fastest way to act on an impact.
+              </div>
+            </div>
+            <button class="fix-prompt-hint-dismiss" id="fix-prompt-hint-dismiss" type="button">Got it</button>
+          </div>
+
+          <!-- One-time whole-repo overview shown right after a folder/zip/repo
+               starts being watched: a deterministic risk gauge plus, when an AI
+               key is configured, a single generated repo summary. Pinned above
+               the per-edit cards; replaced on the next folder switch. -->
+          <section
+            class="repo-overview"
+            id="repo-overview"
+            aria-label="Repository risk overview"
+            hidden
+          >
+            <div class="repo-overview-head">
+              <svg class="repo-overview-icon"><use href="#i-ripple" /></svg>
+              <div class="repo-overview-heading">
+                <span class="repo-overview-title">Repository overview</span>
+                <span class="repo-overview-sub" id="repo-overview-folder"></span>
+              </div>
+            </div>
+            <div class="repo-overview-body">
+              <div class="repo-gauge" id="repo-gauge"></div>
+              <div class="repo-overview-detail">
+                <div class="repo-overview-metrics" id="repo-overview-metrics"></div>
+                <div class="repo-overview-legend" id="repo-overview-legend"></div>
+                <div class="repo-overview-ai" id="repo-overview-ai" hidden></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Persistent LLM summary for the latest scan — pinned above the
+               per-edit cards, updated in place as new scans arrive. -->
+          <section
+            class="project-summary"
+            id="project-summary"
+            aria-live="polite"
+            aria-label="Latest AI summary"
+            hidden
+          >
+            <div class="project-summary-head">
+              <span class="onboarding-plat-icon" data-letters="AI" data-color="#7C3AED"></span>
+              <span class="project-summary-eyebrow">AI summary</span>
+              <span class="project-summary-file" id="project-summary-file"></span>
+            </div>
+            <p class="project-summary-text" id="project-summary-text"></p>
+            <ul class="project-summary-files" id="project-summary-files"></ul>
+          </section>
+
+          <section id="empty-state" class="state-view">
+            <div class="state-mark">
+              <svg><use href="#i-ripple" /></svg>
+            </div>
+            <h1 class="state-title">Watch a folder to see impact</h1>
+            <p class="state-body">
+              Point RippleCheck at any JavaScript or TypeScript project. Each time
+              you save a file, we&rsquo;ll show which functions and components it
+              ripples out to — colored by how risky the change is.
+            </p>
+            <div class="state-actions">
+              <button id="select-folder-button-empty" class="btn btn-primary" type="button">
+                Select folder
+              </button>
+              <button id="upload-zip-button" class="btn btn-ghost" type="button">
+                Upload zip
+              </button>
+            </div>
+            <p class="upload-zip-status" id="upload-zip-status"></p>
+          </section>
+
+          <section id="watching-state" class="state-view" hidden>
+            <div class="state-mark is-watching">
+              <svg><use href="#i-check" /></svg>
+            </div>
+            <h1 class="state-title">Watching for changes</h1>
+            <p class="state-body">
+              Edit any file in <code id="watching-folder-code">the selected folder</code>
+              and its impact will appear here.
+            </p>
+          </section>
+
+          <section id="entry-list" class="entry-list" aria-live="polite" hidden></section>
+        </div>
+
+        <div id="mode-cloud" class="mode-panel" hidden>
+          <div class="cloud-repo-section" id="cloud-repo-section" hidden>
+            <div class="cloud-repo-header">
+              <button id="cloud-browse-repos-button" class="btn btn-ghost" type="button">
+                Browse your repos
+              </button>
+              <span class="cloud-repo-status" id="cloud-repo-status"></span>
+            </div>
+            <div class="cloud-repo-list" id="cloud-repo-list" hidden></div>
+          </div>
+
+          <section id="cloud-logged-out" class="state-view">
+            <div class="state-mark">
+              <svg><use href="#i-cloud" /></svg>
+            </div>
+            <h1 class="state-title">Log in to see cloud history</h1>
+            <p class="state-body">
+              Sign in with GitHub to view your past scan summaries from anywhere.
+            </p>
+            <button id="login-github-button-cloud" class="btn btn-primary" type="button">
+              Log in with GitHub
+            </button>
+          </section>
+
+          <section id="cloud-loading" class="state-view" hidden>
+            <div class="state-mark">
+              <svg><use href="#i-cloud" /></svg>
+            </div>
+            <h1 class="state-title">Loading history&hellip;</h1>
+          </section>
+
+          <section id="cloud-empty" class="state-view" hidden>
+            <div class="state-mark">
+              <svg><use href="#i-cloud" /></svg>
+            </div>
+            <h1 class="state-title">No scans yet</h1>
+            <p class="state-body">
+              Your past scan summaries will show up here once cloud history is recorded.
+            </p>
+          </section>
+
+          <section id="cloud-error" class="state-view" hidden>
+            <div class="state-mark is-error">
+              <svg><use href="#i-warning" /></svg>
+            </div>
+            <h1 class="state-title">Couldn&rsquo;t load history</h1>
+            <p class="state-body">
+              Something went wrong reaching RippleCheck&rsquo;s servers. Try again in a moment.
+            </p>
+          </section>
+
+          <section id="cloud-list" class="entry-list" aria-live="polite" hidden></section>
+        </div>
+
+        <div id="mode-cli" class="mode-panel" hidden>
+          <section class="state-view">
+            <div class="state-mark">
+              <svg><use href="#i-terminal" /></svg>
+            </div>
+            <h1 class="state-title">Connect via CLI</h1>
+            <p class="state-body">
+              Register RippleCheck as an MCP server so Claude Code (or any
+              MCP-compatible tool) can call <code>check_impact</code> directly.
+            </p>
+            <p class="cli-clarifier">
+              <strong>This works independently of the Project tab</strong> —
+              once connected, any Claude Code session in any folder uses
+              RippleCheck automatically, with no app or folder-watching
+              required.
+            </p>
+            <div class="cli-command-row">
+              <code id="cli-command-text"></code>
+              <button id="cli-copy-button" class="btn btn-ghost" type="button">Copy</button>
+              <button id="cli-refresh-button" class="btn btn-ghost" type="button" title="Re-check whether the npm package is published and update the command">Refresh</button>
+            </div>
+            <div class="cli-status-pill" id="cli-status-pill" data-state="disconnected">
+              <span class="conn-dot"></span>
+              <span id="cli-status-label">Checking&hellip;</span>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+    </div>
+
+    <!-- Vibe-code platform status bar — fixed to the window bottom. The
+         "connected" state is only shown for platforms we can honestly
+         verify (Claude Code via the existing checkMcpStatus IPC / the
+         RippleCheck MCP entry in ~/.claude.json). Others render muted +
+         dashed with an explicit "not yet detected" tooltip; we never
+         claim a connection we can't verify. -->
+    <footer class="platform-bar" id="platform-bar" aria-label="Vibe-code platform detection">
+      <span class="platform-bar-hint">Vibe-code:</span>
+      <span
+        class="platform-badge"
+        id="platform-badge-claude-code"
+        data-connected="false"
+        title="Checking Claude Code MCP registration…"
+      >
+        <span class="platform-badge-icon"></span>
+        <span>Claude Code</span>
+      </span>
+      <span
+        class="platform-badge"
+        data-connected="false"
+        data-detection="unavailable"
+        title="Not yet detected — Cursor detection isn't wired up yet."
+      >
+        <span class="platform-badge-icon"></span>
+        <span>Cursor</span>
+      </span>
+      <span
+        class="platform-badge"
+        data-connected="false"
+        data-detection="unavailable"
+        title="Not yet detected — Codex detection isn't wired up yet."
+      >
+        <span class="platform-badge-icon"></span>
+        <span>Codex</span>
+      </span>
+    </footer>
+
+    <!-- Settings slide-over — opened via the sidebar gear icon. -->
+    <div class="settings-scrim" id="settings-scrim" hidden></div>
+    <aside
+      class="settings-panel"
+      id="settings-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-title"
+      hidden
+    >
+      <div class="settings-header">
+        <h2 id="settings-title">Settings</h2>
+        <button
+          id="settings-close-button"
+          class="settings-close"
+          type="button"
+          aria-label="Close settings"
+        >
+          <svg><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-section-title">Account</div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <div class="settings-row-label">Signed in as</div>
+              <div class="settings-row-hint" id="settings-username">&mdash;</div>
+            </div>
+            <button
+              id="settings-signout-button"
+              class="settings-action is-destructive"
+              type="button"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Detail level</div>
+          <div class="settings-row-hint">
+            Controls how much detail impact cards show for each finding.
+          </div>
+          <div class="detail-level-group" id="detail-level-group" role="radiogroup" aria-label="Detail level">
+            <label class="detail-level-option">
+              <input type="radio" name="detail-level" value="simple" />
+              <span class="detail-level-option-text">
+                <span class="detail-level-option-title">Simple</span>
+                <span class="detail-level-option-hint">Just the AI's plain-language explanation and what each file is for</span>
+              </span>
+            </label>
+            <label class="detail-level-option">
+              <input type="radio" name="detail-level" value="standard" />
+              <span class="detail-level-option-text">
+                <span class="detail-level-option-title">Standard</span>
+                <span class="detail-level-option-hint">The plain-English impact sentence plus where each symbol is used</span>
+              </span>
+            </label>
+            <label class="detail-level-option">
+              <input type="radio" name="detail-level" value="deep" />
+              <span class="detail-level-option-text">
+                <span class="detail-level-option-title">Deep Dive</span>
+                <span class="detail-level-option-hint">Full technical trace — paths, line numbers, risk level — plus the AI's reasoning</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Report timing</div>
+          <div class="settings-row-hint">
+            How long to wait for edits to stop before showing a report. A higher value lets an
+            AI assistant finish rewriting several files so you get one report instead of one per
+            file. Scanning still happens on every edit &mdash; only the report waits.
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <label class="settings-row-label" for="settle-window-input">Settle window</label>
+              <div class="settings-row-hint" id="settle-window-hint">Default 3.5s</div>
+            </div>
+            <div class="settle-window-field">
+              <input
+                type="number"
+                id="settle-window-input"
+                class="settle-window-input"
+                min="0.5"
+                max="30"
+                step="0.5"
+                inputmode="decimal"
+              />
+              <span class="settle-window-unit">seconds</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">AI provider</div>
+          <div class="settings-row-hint">
+            Optional. Pick a provider and add your own key to enrich each scan with an
+            AI explanation, file-purpose labels, and a paste-ready fix prompt. The key
+            is stored encrypted on this machine and sent only to your provider — never
+            to RippleCheck's servers. With no provider set, scans still work fully with
+            the built-in template.
+          </div>
+          <div class="ai-provider-form" id="settings-ai-form">
+            <div class="ai-provider-chips" id="settings-ai-providers" role="radiogroup" aria-label="AI provider">
+              <button class="ai-provider-chip" data-provider="anthropic" aria-pressed="false" type="button">Anthropic</button>
+              <button class="ai-provider-chip" data-provider="openai" aria-pressed="false" type="button">OpenAI</button>
+              <button class="ai-provider-chip" data-provider="xai" aria-pressed="false" type="button">xAI (Grok)</button>
+              <button class="ai-provider-chip" data-provider="google" aria-pressed="false" type="button">Google</button>
+              <button class="ai-provider-chip" data-provider="other" aria-pressed="false" type="button">Other (OpenAI-compatible)</button>
+            </div>
+            <div class="ai-provider-custom" id="settings-ai-custom" hidden>
+              <input class="settings-input" id="settings-ai-base-url" type="text" autocomplete="off" spellcheck="false" placeholder="Base URL, e.g. https://api.example.com/v1" aria-label="Base URL" />
+              <input class="settings-input" id="settings-ai-model" type="text" autocomplete="off" spellcheck="false" placeholder="Model, e.g. gpt-4o-mini" aria-label="Model" />
+            </div>
+            <div class="settings-key-row">
+              <input
+                id="settings-ai-key"
+                class="settings-input"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="API key"
+                aria-label="API key"
+              />
+              <button id="settings-ai-test" class="settings-action" type="button" disabled>Test</button>
+            </div>
+            <div class="ai-provider-test-status" id="settings-ai-test-status" aria-live="polite"></div>
+            <div class="settings-key-row">
+              <button id="settings-ai-save" class="settings-action" type="button" disabled>Save</button>
+              <button id="settings-ai-remove" class="settings-action is-destructive" type="button" hidden>
+                Remove
+              </button>
+            </div>
+          </div>
+          <div class="settings-row-hint" id="settings-ai-status">
+            No provider set — using the built-in template.
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Setup</div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <div class="settings-row-label">Coding platform</div>
+              <div class="settings-row-hint">The tool you code with — used to tailor fix prompts.</div>
+            </div>
+            <div class="settings-row-value" id="settings-platform">&mdash;</div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <div class="settings-row-label">Run setup again</div>
+              <div class="settings-row-hint">
+                Re-open the first-launch onboarding to re-pick your platform or load a
+                different project.
+              </div>
+            </div>
+            <button id="settings-rerun-onboarding-button" class="settings-action" type="button">
+              Run setup
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Scan cache</div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <div class="settings-row-label">Reset in-memory scan cache</div>
+              <div class="settings-row-hint">
+                Forces a fresh full parse on the next file change. Only affects
+                the Project watcher; nothing on disk is deleted.
+              </div>
+            </div>
+            <button
+              id="settings-reset-cache-button"
+              class="settings-action"
+              type="button"
+            >
+              Reset
+            </button>
+          </div>
+          <div class="settings-toast" id="settings-cache-toast">Cache cleared.</div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">About</div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <div class="settings-row-label">RippleCheck</div>
+              <div class="settings-row-hint">
+                CLI + MCP + desktop watcher for JavaScript/TypeScript impact
+                analysis.
+              </div>
+            </div>
+            <div class="settings-row-value" id="settings-version">&mdash;</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

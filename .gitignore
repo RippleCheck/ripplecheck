@@ -1,0 +1,27 @@
+node_modules/
+dist/
+
+# Env files — every variant, at any depth. `.env.*` catches .env.local,
+# .env.production and friends; the negation keeps the committed template.
+.env
+.env.*
+!.env.example
+
+# Logs, anywhere. These are runtime debug output (see logDebug() in the
+# website's oauth_config.php) and can contain OAuth tokens and user data.
+*.log
+
+# Daemon runtime state
+.ripplecheck-daemon-port
+
+# PHP session files
+ripplecheck-website/sessions/
+
+# Local AI-assistant configuration. Kept on disk because the project relies on
+# it during development, but deliberately not published — it describes an
+# internal workflow, not anything a user of RippleCheck needs.
+CLAUDE.md
+.claude/
+
+# OS cruft
+.DS_Store

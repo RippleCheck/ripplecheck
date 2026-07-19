@@ -1,0 +1,93 @@
+{
+  "name": "ripplecheck-mcp",
+  "version": "0.1.1",
+  "description": "CLI/MCP tool that scans a JavaScript/TypeScript/Python codebase and builds a dependency map of where each function/component is used.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "ripplecheck": "src/index.js",
+    "ripplecheck-mcp": "src/mcp-server.js"
+  },
+  "files": [
+    "src/*.js",
+    "src/*.py"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "app": "electron src/app/main.js",
+    "test": "node --test test/",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.ripplecheck.app",
+    "productName": "RippleCheck",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "extraMetadata": {
+      "main": "src/app/main.js"
+    },
+    "files": [
+      "src/app/**",
+      "src/scanner.js",
+      "src/explain.js",
+      "src/python-bridge.js",
+      "src/python-analyzer.py",
+      "assets/logo-mark.png",
+      "assets/app-icon.png",
+      "!**/.DS_Store",
+      "!node_modules/@modelcontextprotocol/**",
+      "!node_modules/zod/**",
+      "!node_modules/zod-to-json-schema/**",
+      "!node_modules/hono/**",
+      "!node_modules/express/**",
+      "!node_modules/express-rate-limit/**",
+      "!node_modules/eventsource/**",
+      "!node_modules/jose/**",
+      "!node_modules/cors/**"
+    ],
+    "asarUnpack": [
+      "**/python-analyzer.py"
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "adm-zip": "^0.5.18",
+    "chokidar": "^5.0.0",
+    "ts-morph": "^28.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3",
+    "geist": "^1.7.2"
+  }
+}

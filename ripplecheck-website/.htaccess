@@ -1,0 +1,7 @@
+# Block direct web access to sensitive files and folders
+<FilesMatch "^(\.env|debug\.log)$">
+    Require all denied
+</FilesMatch>
+
+RewriteEngine On
+RewriteRule ^sessions/ - [F,L]
